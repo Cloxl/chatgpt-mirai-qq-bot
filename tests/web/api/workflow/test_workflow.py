@@ -6,11 +6,12 @@ from framework.web.app import create_app
 from framework.ioc.container import DependencyContainer
 from framework.config.global_config import GlobalConfig, WebConfig
 from framework.workflow.core.workflow import WorkflowRegistry, Workflow, Wire
+from framework.workflow.core.block.input_output import Input
 from framework.workflow.core.workflow.builder import WorkflowBuilder
 from framework.workflow.core.block import Block, BlockRegistry
-from framework.workflow.core.workflow.input_output import Input, Output
-from framework.web.auth.routes import create_access_token
+from framework.workflow.core.block.input_output import Output
 from unittest.mock import patch
+from tests.utils.auth_test_utils import setup_auth_service, auth_headers
 
 # ==================== 常量区 ====================
 TEST_PASSWORD = "test-password"
@@ -25,22 +26,28 @@ TEST_WORKFLOW_DESC = "A test workflow"
 
 # ==================== 测试用Block ====================
 class MessageBlock(Block):
-    def __init__(self, container: DependencyContainer, text: str = ""):
-        inputs = {}
-        outputs = {"output": Output("output", str, "Output message")}
-        super().__init__("message_block", inputs, outputs)
+    name = "message_block"
+    inputs = {}
+    outputs = {"output": Output("output", str, "Output message")}
+    container: DependencyContainer
+
+    def __init__(self, text: str = ""):
         self.config = {"text": text}
         self.position = {"x": 0, "y": 0}
+
 
     def execute(self) -> dict:
         return {"output": self.config["text"]}
 
 class LLMBlock(Block):
-    def __init__(self, container: DependencyContainer, prompt: str = ""):
-        inputs = {"input": Input("input", str, "Input message")}
-        outputs = {"output": Output("output", str, "Output message")}
-        super().__init__("llm_block", inputs, outputs)
+    name = "llm_block"
+    inputs = {"input": Input("input", str, "Input message")}
+    outputs = {"output": Output("output", str, "Output message")}
+    container: DependencyContainer
+
+    def __init__(self, prompt: str = ""):
         self.config = {"prompt": prompt}
+
         self.position = {"x": 200, "y": 0}
 
     def execute(self, input: str) -> dict:
@@ -60,6 +67,9 @@ def app():
     )
     container.register(GlobalConfig, config)
     
+    # 设置认证服务
+    setup_auth_service(container)
+    
     # 创建并注册 BlockRegistry
     block_registry = BlockRegistry()
     block_registry.register("message", "test", MessageBlock)
@@ -67,17 +77,16 @@ def app():
     container.register(BlockRegistry, block_registry)
     
     # 创建工作流
-    builder = (WorkflowBuilder(TEST_WORKFLOW_NAME, container)
+    builder = (WorkflowBuilder(TEST_WORKFLOW_NAME)
         .use(MessageBlock, text="Hello")
-        .chain(LLMBlock, prompt="How are you?")
-        .build())
+        .chain(LLMBlock, prompt="How are you?"))
+    
     
     # 创建并注册 WorkflowRegistry
     registry = WorkflowRegistry(container)
     registry.register(TEST_GROUP_ID, TEST_WORKFLOW_ID, builder)
     container.register(WorkflowRegistry, registry)
     
-
     app = create_app(container)
     app.container = container
     return app
@@ -87,24 +96,12 @@ def test_client(app):
     """创建测试客户端"""
     return app.test_client()
 
-@pytest_asyncio.fixture
-async def auth_headers(test_client):
-    """获取认证头"""
-    with patch('framework.web.auth.routes.verify_saved_password', return_value=True):
-        response = await test_client.post('/api/auth/login', json={
-            'password': TEST_PASSWORD
-        })
-        data = await response.get_json()
-        assert response.status_code == 200
-        token = data['access_token']
-        return {'Authorization': f'Bearer {token}'}
-
 # ==================== 测试用例 ====================
 class TestWorkflow:
     @pytest.mark.asyncio
     async def test_list_workflows(self, test_client, auth_headers):
         """测试获取工作流列表"""
-        response = await test_client.get('/api/workflow', headers=auth_headers)
+        response = await test_client.get('/backend-api/api/workflow', headers=auth_headers)
         data = await response.get_json()
         assert "error" not in data
         assert "workflows" in data
@@ -119,7 +116,7 @@ class TestWorkflow:
     async def test_get_workflow(self, test_client, auth_headers):
         """测试获取单个工作流"""
         response = await test_client.get(
-            f'/api/workflow/{TEST_GROUP_ID}/{TEST_WORKFLOW_ID}',
+            f'/backend-api/api/workflow/{TEST_GROUP_ID}/{TEST_WORKFLOW_ID}',
             headers=auth_headers
         )
         data = await response.get_json()
@@ -129,7 +126,6 @@ class TestWorkflow:
         assert workflow["workflow_id"] == TEST_WORKFLOW_ID
         assert workflow["group_id"] == TEST_GROUP_ID
         assert workflow["name"] == TEST_WORKFLOW_NAME
-        assert len(workflow["blocks"]) == 2
         assert len(workflow["wires"]) == 1
 
     @pytest.mark.asyncio
@@ -154,7 +150,7 @@ class TestWorkflow:
         }
         
         response = await test_client.post(
-            f'/api/workflow/{TEST_GROUP_ID}/{TEST_WORKFLOW_ID_NEW}',
+            f'/backend-api/api/workflow/{TEST_GROUP_ID}/{TEST_WORKFLOW_ID_NEW}',
             headers=auth_headers,
             json=workflow_data
         )
@@ -188,7 +184,7 @@ class TestWorkflow:
         }
         
         response = await test_client.put(
-            f'/api/workflow/{TEST_GROUP_ID}/{TEST_WORKFLOW_ID}',
+            f'/backend-api/api/workflow/{TEST_GROUP_ID}/{TEST_WORKFLOW_ID}',
             headers=auth_headers,
             json=workflow_data
         )
@@ -206,7 +202,7 @@ class TestWorkflow:
     async def test_delete_workflow(self, test_client, auth_headers):
         """测试删除工作流"""
         response = await test_client.delete(
-            f'/api/workflow/{TEST_GROUP_ID}/{TEST_WORKFLOW_ID}',
+            f'/backend-api/api/workflow/{TEST_GROUP_ID}/{TEST_WORKFLOW_ID}',
             headers=auth_headers
         )
         

@@ -7,7 +7,7 @@
 ### 获取适配器类型
 
 ```http
-GET /api/llm/types
+GET/backend-api/api/llm/types
 ```
 
 获取所有可用的 LLM 适配器类型。
@@ -27,7 +27,7 @@ GET /api/llm/types
 ### 获取所有后端
 
 ```http
-GET /api/llm/backends
+GET/backend-api/api/llm/backends
 ```
 
 获取所有已注册的 LLM 后端信息。
@@ -55,7 +55,7 @@ GET /api/llm/backends
 ### 获取特定后端
 
 ```http
-GET /api/llm/backends/{backend_name}
+GET/backend-api/api/llm/backends/{backend_name}
 ```
 
 获取指定后端的详细信息。
@@ -79,7 +79,7 @@ GET /api/llm/backends/{backend_name}
 ### 创建后端
 
 ```http
-POST /api/llm/backends
+POST/backend-api/api/llm/backends
 ```
 
 注册新的 LLM 后端。
@@ -101,7 +101,7 @@ POST /api/llm/backends
 ### 更新后端
 
 ```http
-PUT /api/llm/backends/{backend_name}
+PUT/backend-api/api/llm/backends/{backend_name}
 ```
 
 更新现有后端的配置。
@@ -124,10 +124,50 @@ PUT /api/llm/backends/{backend_name}
 ### 删除后端
 
 ```http
-DELETE /api/llm/backends/{backend_name}
+DELETE/backend-api/api/llm/backends/{backend_name}
 ```
 
 删除指定的后端。如果后端当前已启用，会先自动卸载。
+
+### 获取适配器配置模式
+
+```http
+GET/backend-api/api/llm/types/{adapter_type}/config-schema
+```
+
+获取指定适配器类型的配置字段模式。
+
+**响应示例：**
+```json
+{
+  "schema": {
+    "title": "OpenAIConfig",
+    "type": "object",
+    "properties": {
+      "api_key": {
+        "title": "API Key",
+        "type": "string",
+        "description": "OpenAI API密钥"
+      },
+      "api_base": {
+        "title": "API Base",
+        "type": "string",
+        "description": "API基础URL",
+        "default": "https://api.openai.com/v1"
+      },
+      "temperature": {
+        "title": "Temperature",
+        "type": "number",
+        "description": "生成温度",
+        "default": 0.7,
+        "minimum": 0,
+        "maximum": 2
+      }
+    },
+    "required": ["api_key"]
+  }
+}
+```
 
 ## 数据模型
 
@@ -151,6 +191,10 @@ DELETE /api/llm/backends/{backend_name}
 
 ### LLMAdapterTypes
 - `types`: 可用的适配器类型列表
+
+### LLMAdapterConfigSchema
+- `error`: 错误信息(可选)
+- `schema`: JSON Schema 格式的配置字段描述
 
 ## 适配器类型
 

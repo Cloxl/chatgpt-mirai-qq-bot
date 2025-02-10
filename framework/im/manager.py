@@ -1,6 +1,7 @@
 import asyncio
-from typing import Dict
+from typing import Dict, Type
 
+from framework.config.config_loader import pydantic_validation_wrapper
 from framework.config.global_config import GlobalConfig, IMConfig
 from framework.im.adapter import IMAdapter
 from framework.im.im_registry import IMRegistry
@@ -24,7 +25,7 @@ class IMManager:
         self.container = container
         self.config = config
         self.im_registry = adapter_registry
-        self.adapters: Dict[str, any] = {}
+        self.adapters: Dict[str, IMAdapter] = {}
 
     def get_adapter_type(self, name: str) -> str:
         """
@@ -59,7 +60,7 @@ class IMManager:
         :param name: adapter 的名称
         :param config: adapter 的配置
         """
-        self.get_adapter_config(name).config = config
+        self.get_adapter_config(name).config = config.model_dump()
         
     def delete_adapter(self, name: str):
         """
@@ -69,13 +70,12 @@ class IMManager:
         self.adapters.pop(name)
         self.config.ims = [im for im in self.config.ims if im.name != name]
 
+    @pydantic_validation_wrapper
     def start_adapters(self, loop=None):
         """
         根据配置文件中的 enable_ims 启动对应的 adapter。
         :param loop: 负责执行的 event loop
         """
-
-
         if loop is None:
             loop = asyncio.new_event_loop()
         tasks = []
@@ -88,14 +88,13 @@ class IMManager:
             adapter_config = config_class(**im.config)
 
             # 创建 adapter 实例
-            with self.container.scoped() as scoped_container:
-                scoped_container.register(config_class, adapter_config)
-                adapter = Inject(scoped_container).create(adapter_class)()
-            self.adapters[im.name] = adapter
+            adapter = self.create_adapter(im.name, adapter_class, adapter_config)
             if im.enable:
                 tasks.append(asyncio.ensure_future(self._start_adapter(im.name, adapter), loop=loop))
-        loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
-
+        if len(tasks) > 0:  
+            loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+        else:
+            logger.warning("No adapters to start, please check your config")
 
     def stop_adapters(self, loop=None):
         """
@@ -125,14 +124,14 @@ class IMManager:
     
     async def _start_adapter(self, key: str, adapter: IMAdapter):
         logger.info(f"Starting adapter: {key}")
-        adapter.is_running = True
         await adapter.start()
+        adapter.is_running = True
         logger.info(f"Started adapter: {key}")
 
     async def _stop_adapter(self, key: str, adapter: IMAdapter):
         logger.info(f"Stopping adapter: {key}")
-        adapter.is_running = False
         await adapter.stop()
+        adapter.is_running = False
         logger.info(f"Stopped adapter: {key}")
 
     def stop_adapter(self, adapter_id: str, loop: asyncio.AbstractEventLoop):
@@ -155,4 +154,13 @@ class IMManager:
         """
 
         return key in self.adapters and getattr(self.adapters[key], "is_running", False)
+
+    def create_adapter(self, name: str, adapter_class: Type[IMAdapter], adapter_config: IMConfig) -> IMAdapter:
+        with self.container.scoped() as scoped_container:
+            scoped_container.register(adapter_config.__class__, adapter_config)
+            adapter = Inject(scoped_container).create(adapter_class)()
+            adapter.is_running = False
+        self.adapters[name] = adapter
+        return adapter
+
 
