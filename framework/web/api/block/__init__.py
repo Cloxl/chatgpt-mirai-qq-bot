@@ -1,1 +1,4 @@
-from .routes import block_bp 
+from .routes import block_bp
+
+__all__ = ["block_bp"]
+
